@@ -111,38 +111,20 @@ func (bt *Simbeat) Run(b *beat.Beat) error {
 		var checkpoint Check
 		json.Unmarshal(byteValue, &checkpoint)
 
-		// 打开和读取基线配置文件
-		file, err := os.Open(`testget.conf`)
-		if err != nil {
-			log.Fatal(err)
-		}
-		check, _ := ioutil.ReadAll(file)
-		var platform Platform
-		json.Unmarshal(check, &platform)
-
-		for i := 0; i < len(platform.Win); i++ {
-			RuleId := platform.Win[i]
-			// fmt.Print("RuleId: " + RuleId + "\n")
-
-			// 判断本地是否有对应的配置文件
-			test, err := checkpoint.CList["windows"].CSlice[platform.Win[i]]
-			if !err {
-				log.Println("没有对应配置项")
-				// 传空值
-				continue
-			}
+		for k, v := range checkpoint.CList["windows"].CSlice {
+			fmt.Print("checkpoint: " + k + "\n")
 
 			// param 的多行处理
 			var param []string
 			var value []string
-			for j := 0; j < len(test.Param); j++ {
-				param = append(param, test.Param[j])
+			for j := 0; j < len(v.Param); j++ {
+				param = append(param, v.Param[j])
 
 				// 只读事务
 				gtxn := db.NewTransaction(false)
 				defer gtxn.Discard()
 				// 检索键值对
-				if item, err := gtxn.Get([]byte(test.Param[j])); err == nil {
+				if item, err := gtxn.Get([]byte(v.Param[j])); err == nil {
 					if v, err := item.ValueCopy(nil); err == nil {
 						value = append(value, string(v))
 					}
@@ -153,7 +135,7 @@ func (bt *Simbeat) Run(b *beat.Beat) error {
 				Timestamp: time.Now(),
 				Fields: common.MapStr{
 					"ostype": b.Info.Name,
-					"ruleId": RuleId,
+					"ruleId": k,
 					"param":  param,
 					"value":  value,
 				},
