@@ -1,0 +1,5 @@
+= Simbeat Docs
+
+Welcome to the Simbeat documentation.
+
+
