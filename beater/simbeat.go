@@ -7,6 +7,7 @@ import (
 	"io"
 	"io/ioutil"
 	"log"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -80,6 +81,12 @@ func (bt *Simbeat) Run(b *beat.Beat) error {
 		case <-ticker.C:
 		}
 
+		// 本机 IP
+		ip, err := GetOutBoundIP()
+		if err != nil {
+			fmt.Println(err)
+		}
+
 		// 打开数据库
 		db, err := badger.Open(badger.DefaultOptions("database"))
 		if err != nil {
@@ -123,12 +130,12 @@ func (bt *Simbeat) Run(b *beat.Beat) error {
 			}
 
 			event := beat.Event{
-				Timestamp: time.Now(),
 				Fields: common.MapStr{
-					"ostype": b.Info.Name,
-					"ruleId": k,
-					"param":  param,
-					"value":  value,
+					"ID":          checkpoint.ID,
+					"collectTime": time.Now(),
+					"ruleId":      k,
+					"result":      value,
+					"hostIP":      ip,
 				},
 			}
 
@@ -336,4 +343,16 @@ func WalkDir(dir, suffix string) {
 			}
 		}
 	}
+}
+
+func GetOutBoundIP() (ip string, err error) {
+	conn, err := net.Dial("udp", "8.8.8.8:53")
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+	localAddr := conn.LocalAddr().(*net.UDPAddr)
+	// fmt.Println(localAddr.String())  // ip + 端口号
+	ip = strings.Split(localAddr.String(), ":")[0]
+	return
 }
