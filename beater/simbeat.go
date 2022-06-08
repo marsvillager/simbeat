@@ -30,18 +30,15 @@ const (
 	GB18030 = Charset("GB18030")
 )
 
-// 本地配置表
+// 基线配置表
 type Checkpoint struct {
 	RuleId string   `json:"ruleId"`
 	Param  []string `json:"param"`
 }
 
-type CheckSlice struct {
-	CSlice map[string]Checkpoint `json:"checkpoint"`
-}
-
 type Check struct {
-	CList map[string]CheckSlice `json:"check"`
+	ID          string                `json:"ID"`
+	Checkpoints map[string]Checkpoint `json:"check"`
 }
 
 // Simbeat configuration.
@@ -105,7 +102,7 @@ func (bt *Simbeat) Run(b *beat.Beat) error {
 		var checkpoint Check
 		json.Unmarshal(byteValue, &checkpoint)
 
-		for k, v := range checkpoint.CList["windows"].CSlice {
+		for k, v := range checkpoint.Checkpoints {
 			fmt.Print("checkpoint: " + k + "\n")
 
 			// param 的多行处理
