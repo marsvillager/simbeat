@@ -1,0 +1,326 @@
+// Licensed to Elasticsearch B.V. under one or more contributor
+// license agreements. See the NOTICE file distributed with
+// this work for additional information regarding copyright
+// ownership. Elasticsearch B.V. licenses this file to you under
+// the Apache License, Version 2.0 (the "License"); you may
+// not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+// +build !integration
+
+package readfile
+
+import (
+	"bytes"
+	"encoding/hex"
+	"io"
+	"math/rand"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/stretchr/testify/assert"
+	"golang.org/x/text/transform"
+
+	"github.com/elastic/beats/filebeat/reader/readfile/encoding"
+)
+
+// Sample texts are from http://www.columbia.edu/~kermit/utf8.html
+var tests = []struct {
+	encoding string
+	strings  []string
+}{
+	{"plain", []string{"I can", "eat glass"}},
+	{"latin1", []string{"I kå Glas frässa", "ond des macht mr nix!"}},
+	{"utf-16be", []string{"Pot să mănânc sticlă", "și ea nu mă rănește."}},
+	{"utf-16le", []string{"काचं शक्नोम्यत्तुम् ।", "नोपहिनस्ति माम् ॥"}},
+	{"big5", []string{"我能吞下玻", "璃而不傷身體。"}},
+	{"gb18030", []string{"我能吞下玻璃", "而不傷身。體"}},
+	{"euc-kr", []string{" 나는 유리를 먹을 수 있어요.", " 그래도 아프지 않아요"}},
+	{"euc-jp", []string{"私はガラスを食べられます。", "それは私を傷つけません。"}},
+}
+
+func TestReaderEncodings(t *testing.T) {
+	for _, test := range tests {
+		t.Logf("test codec: %v", test.encoding)
+
+		codecFactory, ok := encoding.FindEncoding(test.encoding)
+		if !ok {
+			t.Errorf("can not find encoding '%v'", test.encoding)
+			continue
+		}
+
+		buffer := bytes.NewBuffer(nil)
+		codec, _ := codecFactory(buffer)
+
+		// write with encoding to buffer
+		writer := transform.NewWriter(buffer, codec.NewEncoder())
+		var expectedCount []int
+		for _, line := range test.strings {
+			writer.Write([]byte(line))
+			writer.Write([]byte{'\n'})
+			expectedCount = append(expectedCount, buffer.Len())
+		}
+
+		// create line reader
+		reader, err := NewLineReader(buffer, codec, 1024, 1024)
+		if err != nil {
+			t.Errorf("failed to initialize reader: %v", err)
+			continue
+		}
+
+		// read decodec lines from buffer
+		var readLines []string
+		var byteCounts []int
+		current := 0
+		for {
+			bytes, sz, err := reader.Next()
+			if sz > 0 {
+				readLines = append(readLines, string(bytes[:len(bytes)-1]))
+			}
+
+			if err != nil {
+				break
+			}
+
+			current += sz
+			byteCounts = append(byteCounts, current)
+		}
+
+		// validate lines and byte offsets
+		if len(test.strings) != len(readLines) {
+			t.Errorf("number of lines mismatch (expected=%v actual=%v)",
+				len(test.strings), len(readLines))
+			continue
+		}
+		for i := range test.strings {
+			expected := test.strings[i]
+			actual := readLines[i]
+			assert.Equal(t, expected, actual)
+			assert.Equal(t, expectedCount[i], byteCounts[i])
+		}
+	}
+}
+
+func TestReadSingleLongLine(t *testing.T) {
+	testReadLineLengths(t, []int{10 * 1024})
+}
+
+func TestReadIncreasingLineLengths(t *testing.T) {
+	lineLengths := []int{200, 400, 800, 1000, 2048, 4069}
+	testReadLineLengths(t, lineLengths)
+}
+
+func TestReadDecreasingLineLengths(t *testing.T) {
+	lineLengths := []int{4096, 2048, 1000, 800, 400, 200}
+	testReadLineLengths(t, lineLengths)
+}
+
+func TestReadRandomLineLengths(t *testing.T) {
+	minLength := 100
+	maxLength := 80000
+	numLines := 100
+
+	lineLengths := make([]int, numLines)
+	for i := 0; i < numLines; i++ {
+		lineLengths[i] = rand.Intn(maxLength-minLength) + minLength
+	}
+
+	testReadLineLengths(t, lineLengths)
+}
+
+func testReadLineLengths(t *testing.T, lineLengths []int) {
+	// create lines + stream buffer
+	var lines [][]byte
+	for _, lineLength := range lineLengths {
+		inputLine := make([]byte, lineLength+1)
+		for i := 0; i < lineLength; i++ {
+			char := rand.Intn('z'-'A') + 'A'
+			inputLine[i] = byte(char)
+		}
+		inputLine[len(inputLine)-1] = '\n'
+		lines = append(lines, inputLine)
+	}
+
+	testReadLines(t, lines)
+}
+
+func testReadLines(t *testing.T, inputLines [][]byte) {
+	var inputStream []byte
+	for _, line := range inputLines {
+		inputStream = append(inputStream, line...)
+	}
+
+	// initialize reader
+	buffer := bytes.NewBuffer(inputStream)
+	codec, _ := encoding.Plain(buffer)
+	bufLen := buffer.Len()
+	reader, err := NewLineReader(buffer, codec, bufLen, bufLen)
+	if err != nil {
+		t.Fatalf("Error initializing reader: %v", err)
+	}
+
+	// read lines
+	var lines [][]byte
+	for range inputLines {
+		bytes, _, err := reader.Next()
+		if err != nil {
+			t.Fatalf("failed to read all lines from test: %v", err)
+		}
+
+		lines = append(lines, bytes)
+	}
+
+	// validate
+	for i := range inputLines {
+		assert.Equal(t, len(inputLines[i]), len(lines[i]))
+		assert.Equal(t, inputLines[i], lines[i])
+	}
+}
+
+func testReadLine(t *testing.T, line []byte) {
+	testReadLines(t, [][]byte{line})
+}
+
+func randomInt(r *rand.Rand, min, max int) int {
+	return r.Intn(max+1-min) + min
+}
+
+func randomBool(r *rand.Rand) bool {
+	n := randomInt(r, 0, 1)
+	return n != 0
+}
+
+func randomBytes(r *rand.Rand, sz int) ([]byte, error) {
+	bytes := make([]byte, sz)
+	if _, err := rand.Read(bytes); err != nil {
+		return nil, err
+	}
+	return bytes, nil
+}
+
+func randomString(r *rand.Rand, sz int) (string, error) {
+	if sz == 0 {
+		return "", nil
+	}
+
+	var bytes []byte
+	var err error
+	if bytes, err = randomBytes(r, sz/2+sz%2); err != nil {
+		return "", err
+	}
+	s := hex.EncodeToString(bytes)
+	return s[:sz], nil
+}
+
+func setupTestMaxBytesLimit(lineMaxLimit, lineLen int, nl []byte) (lines []string, data string, err error) {
+	rnd := rand.New(rand.NewSource(time.Now().UnixNano()))
+
+	lineCount := randomInt(rnd, 11, 142)
+	lines = make([]string, lineCount)
+
+	var b strings.Builder
+
+	for i := 0; i < lineCount; i++ {
+		var sz int
+		// Non-empty line
+		if randomBool(rnd) {
+			// Boundary to the lineMaxLimit
+			if randomBool(rnd) {
+				sz = randomInt(rnd, lineMaxLimit-1, lineMaxLimit+1)
+			} else {
+				sz = randomInt(rnd, 0, lineLen)
+			}
+		} else {
+			// Randomly empty or one characters lines(another possibly boundary conditions)
+			sz = randomInt(rnd, 0, 1)
+		}
+
+		s, err := randomString(rnd, sz)
+		if err != nil {
+			return nil, "", err
+		}
+
+		lines[i] = s
+		if len(s) > 0 {
+			b.WriteString(s)
+		}
+		b.Write(nl)
+	}
+	return lines, b.String(), nil
+}
+
+func TestMaxBytesLimit(t *testing.T) {
+	const (
+		enc           = "plain"
+		numberOfLines = 102
+		bufferSize    = 1024
+		lineMaxLimit  = 3012
+		lineLen       = 5720 // exceeds lineMaxLimit
+	)
+
+	codecFactory, ok := encoding.FindEncoding(enc)
+	if !ok {
+		t.Fatalf("can not find encoding '%v'", enc)
+	}
+
+	buffer := bytes.NewBuffer(nil)
+	codec, _ := codecFactory(buffer)
+
+	// Generate random lines lengths including empty lines
+	nl := []byte("\n")
+	lines, input, err := setupTestMaxBytesLimit(lineMaxLimit, lineLen, nl)
+	if err != nil {
+		t.Fatal("failed to generate random input:", err)
+	}
+
+	// Create line reader
+	reader, err := NewLineReader(strings.NewReader(input), codec, bufferSize, lineMaxLimit)
+	if err != nil {
+		t.Fatal("failed to initialize reader:", err)
+	}
+
+	// Read decodec lines and test
+	var idx int
+	for i := 0; ; i++ {
+		b, n, err := reader.Next()
+		if err != nil {
+			if err == io.EOF {
+				break
+			} else {
+				t.Fatal("unexpected error:", err)
+			}
+		}
+
+		// Find the next expected line from the original test array
+		var line string
+		for ; idx < len(lines); idx++ {
+			// Expected to be dropped
+			if len(lines[idx]) > lineMaxLimit {
+				continue
+			}
+			line = lines[idx]
+			idx++
+			break
+		}
+
+		gotLen := n - len(nl)
+		s := string(b[:len(b)-len(nl)])
+		if len(line) != gotLen {
+			t.Fatalf("invalid line length, expected: %d got: %d", len(line), gotLen)
+		}
+
+		if line != s {
+			t.Fatalf("lines do not match, expected: %s got: %s", line, s)
+		}
+	}
+}
