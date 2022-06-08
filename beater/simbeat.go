@@ -102,8 +102,8 @@ func (bt *Simbeat) Run(b *beat.Beat) error {
 		// 将服务导入到数据库中
 		services(db)
 
-		// // 打开和读取本地配置文件
-		configFile, err := os.Open(`allConf.conf`)
+		// 打开和读取本地配置文件
+		configFile, err := os.Open(bt.config.Path)
 		if err != nil {
 			log.Fatal(err)
 		}

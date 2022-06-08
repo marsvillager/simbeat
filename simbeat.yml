@@ -5,6 +5,7 @@
 simbeat:
   # Defines how often an event is sent to the output
   period: 1s
+  path: "/home/reptile/go/src/github.com/marsvillager/simbeat/simbeat.yml"
 
 #================================ General =====================================
 
