@@ -44,12 +44,6 @@ type Check struct {
 	CList map[string]CheckSlice `json:"check"`
 }
 
-// 基线配置文件
-type Platform struct {
-	Win   []string `json:"windows"`
-	Linux []string `json:"linux"`
-}
-
 // Simbeat configuration.
 type Simbeat struct {
 	done   chan struct{}
