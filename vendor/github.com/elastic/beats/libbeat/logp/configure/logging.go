@@ -33,7 +33,7 @@ var (
 )
 
 func init() {
-	flag.BoolVar(&verbose, "v", false, "Log at INFO level")
+	flag.BoolVar(&verbose, "flag", false, "Log at INFO level")
 	flag.BoolVar(&toStderr, "e", false, "Log to stderr and disable syslog/file output")
 	common.StringArrVarFlag(nil, &debugSelectors, "d", "Enable certain debug selectors")
 }
