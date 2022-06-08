@@ -20,7 +20,7 @@ import (
 	"github.com/elastic/beats/libbeat/logp"
 	"golang.org/x/text/encoding/simplifiedchinese"
 
-	"github.com/xejwofuxu/simbeat/config"
+	"github.com/marsvillager/simbeat/config"
 )
 
 type Charset string
