@@ -135,7 +135,7 @@ func (bt *Simbeat) Run(b *beat.Beat) error {
 					"collectTime": time.Now(),
 					"ruleId":      k,
 					"result":      value,
-					"hostIP":      ip,
+					"hostIp":      ip,
 				},
 			}
 
