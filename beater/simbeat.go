@@ -303,7 +303,7 @@ func services(db *badger.DB) {
 		services = append(services, ConvertByte2String(tmp, "GB18030"))
 	}
 
-	// 更新 value，1 表示开启，0 表示关闭
+	// 更新 value，1 表示开启，关闭则没有值
 	for i := 0; i < len(services); i++ { // 包含头尾的杂字段，但并不影响，另多不少
 		// 读写事务（第一个参数是 bool 值，表示事务是否应可写）
 		update := db.NewTransaction(true)
