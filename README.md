@@ -1,3 +1,5 @@
+注意：字符编码为中文，注意系统语言
+
 # Simbeat
 
 Welcome to Simbeat.
