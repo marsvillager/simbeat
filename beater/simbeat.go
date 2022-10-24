@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -33,8 +34,9 @@ const (
 
 // 基线配置表
 type Checkpoint struct {
-	RuleId string   `json:"ruleId"`
-	Param  []string `json:"param"`
+	RuleId  string   `json:"ruleId"`
+	ParamEn []string `json:"paramEn"`
+	ParamZh []string `json:"paramZh"`
 }
 
 type Check struct {
@@ -112,17 +114,37 @@ func (bt *Simbeat) Run(b *beat.Beat) error {
 		for k, v := range checkpoint.Checkpoints {
 			fmt.Print("checkpoint: " + k + "\n")
 
+			// collectTime
+			collectTime := time.Now()
+			_, offset := collectTime.Zone()
+			utc := offset / 3600
+			var utcStr string
+			if utc > 0 {
+				utcStr = fmt.Sprintf("+%v", utc)
+			} else {
+				utcStr = fmt.Sprintf("%v", utc)
+			}
+
+			// language
+			var osLang = getOsLang()
+			var confParam = v.ParamEn
+			if osLang == "en" {
+				confParam = v.ParamEn
+			} else if osLang == "zh" {
+				confParam = v.ParamZh
+			}
+
 			// param 的多行处理
 			var param []string
 			var value []string
-			for j := 0; j < len(v.Param); j++ {
-				param = append(param, v.Param[j])
+			for j := 0; j < len(confParam); j++ {
+				param = append(param, confParam[j])
 
 				// 只读事务
 				gtxn := db.NewTransaction(false)
 				defer gtxn.Discard()
 				// 检索键值对
-				if item, err := gtxn.Get([]byte(v.Param[j])); err == nil {
+				if item, err := gtxn.Get([]byte(confParam[j])); err == nil {
 					if v, err := item.ValueCopy(nil); err == nil {
 						value = append(value, string(v))
 					}
@@ -132,10 +154,11 @@ func (bt *Simbeat) Run(b *beat.Beat) error {
 			event := beat.Event{
 				Fields: common.MapStr{
 					"ID":          checkpoint.ID,
-					"collectTime": time.Now(),
+					"collectTime": collectTime,
 					"ruleId":      k,
 					"result":      value,
 					"hostIp":      ip,
+					"utc":         utcStr,
 				},
 			}
 
@@ -355,4 +378,29 @@ func GetOutBoundIP() (ip string, err error) {
 	// fmt.Println(localAddr.String())  // ip + 端口号
 	ip = strings.Split(localAddr.String(), ":")[0]
 	return
+}
+
+func getOsLang() string {
+	osHost := runtime.GOOS
+	defaultLang := "en"
+	switch osHost {
+	case "windows":
+		cmd := exec.Command("powershell", "Get-Culture | select -exp Name")
+		output, err := cmd.Output()
+		if err == nil {
+			langLocRaw := strings.TrimSpace(string(output))
+			langLoc := strings.Split(langLocRaw, "-")
+			lang := langLoc[0]
+			return lang
+		}
+	case "linux":
+		envlang, ok := os.LookupEnv("LANG")
+		if ok {
+			langLocRaw := strings.TrimSpace(envlang)
+			langLoc := strings.Split(langLocRaw, "_")
+			lang := langLoc[0]
+			return lang
+		}
+	}
+	return defaultLang
 }
