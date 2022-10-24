@@ -1,4 +1,5 @@
-注意：字符编码为中文，注意系统语言
+# 跨平台编译：Windows
+`CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build`
 
 # Simbeat
 
